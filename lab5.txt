@@ -1,0 +1,92 @@
+ĆWICZENIE 5 — WIREGUARD — POLECENIA
+
+ROUTER 1 — MIKROTIK (192.168.48.17, LAN 10.0.0.0/24)
+
+/ip dhcp-client add interface=ether1 disabled=no add-default-route=yes
+/ip address add address=10.0.0.1/24 interface=ether2
+/interface wireguard add name=wg-cw5 listen-port=13231 mtu=1420
+/ip address add address=10.10.10.1/24 interface=wg-cw5
+:put [/interface wireguard get [find name="wg-cw5"] public-key]
+/interface wireguard peers add interface=wg-cw5 public-key="KLUCZ_PUBLICZNY_ROUTERA_2" endpoint-address=192.168.48.86 endpoint-port=13231 allowed-address=10.10.10.2/32,10.0.1.0/24 persistent-keepalive=25s
+/ip route add dst-address=10.0.1.0/24 gateway=wg-cw5
+/ip firewall filter add chain=input action=accept protocol=udp src-address=192.168.48.86 dst-port=13231
+/ip firewall filter add chain=input action=accept in-interface=wg-cw5 src-address=10.10.10.2/32
+/ip firewall filter add chain=forward action=accept src-address=10.0.0.0/24 dst-address=10.0.1.0/24
+/ip firewall filter add chain=forward action=accept src-address=10.0.1.0/24 dst-address=10.0.0.0/24
+/ping 10.10.10.2 src-address=10.10.10.1 count=5
+/ping 10.0.1.1 src-address=10.0.0.1 count=5
+/interface wireguard peers print detail
+
+ROUTER 2 — MIKROTIK (192.168.48.86, LAN 10.0.1.0/24)
+
+/ip dhcp-client add interface=ether1 disabled=no add-default-route=yes
+/ip address add address=10.0.1.1/24 interface=ether2
+/interface wireguard add name=wg-lab listen-port=13231 mtu=1420
+/ip address add address=10.10.10.2/24 interface=wg-lab
+:put [/interface wireguard get [find name="wg-lab"] public-key]
+/interface wireguard peers add interface=wg-lab public-key="KLUCZ_PUBLICZNY_ROUTERA_1" endpoint-address=192.168.48.17 endpoint-port=13231 allowed-address=10.10.10.1/32,10.0.0.0/24 persistent-keepalive=25s
+/ip route add dst-address=10.0.0.0/24 gateway=wg-lab
+/ip firewall filter add chain=input action=accept protocol=udp src-address=192.168.48.17 dst-port=13231
+/ip firewall filter add chain=input action=accept in-interface=wg-lab src-address=10.10.10.1/32
+/ip firewall filter add chain=forward action=accept src-address=10.0.1.0/24 dst-address=10.0.0.0/24
+/ip firewall filter add chain=forward action=accept src-address=10.0.0.0/24 dst-address=10.0.1.0/24
+/ping 10.10.10.1 src-address=10.10.10.2 count=5
+/ping 10.0.0.1 src-address=10.0.1.1 count=5
+/interface wireguard peers print detail
+
+LINUX 1 (10.0.0.10)
+
+sudo ip addr add 10.0.0.10/24 dev enx00e04c681cbb
+sudo ip route replace 10.0.1.0/24 via 10.0.0.1 dev enx00e04c681cbb
+ping -c 5 10.0.1.10
+sudo apt install -y iperf3
+
+LINUX 2 (10.0.1.10 — PRZYKŁADOWY ADRES; PODSTAW FAKTYCZNY)
+
+sudo ip addr add 10.0.1.10/24 dev NAZWA_KARTY
+sudo ip route replace 10.0.0.0/24 via 10.0.1.1 dev NAZWA_KARTY
+ping -c 5 10.0.0.10
+sudo apt install -y iperf3
+
+IPERF3 — HALF-DUPLEX (LINUX 1 — SERWER; LINUX 2 — KLIENT)
+
+Linux 1:
+iperf3 -s -p 5201
+
+Linux 2 — TCP:
+iperf3 -c 10.0.0.10 -p 5201 -t 20
+
+Linux 2 — UDP:
+iperf3 -c 10.0.0.10 -p 5201 -u -b 20M -t 20
+
+IPERF3 — FULL-DUPLEX (OBYDWA SERWERY URUCHOMIONE, KLIENTY RÓWNOCZEŚNIE)
+
+Linux 1 — serwer:
+iperf3 -s -p 5201
+
+Linux 2 — serwer:
+iperf3 -s -p 5202
+
+Linux 1 — klient TCP:
+iperf3 -c 10.0.1.10 -p 5202 -t 20
+
+Linux 2 — klient TCP:
+iperf3 -c 10.0.0.10 -p 5201 -t 20
+
+Linux 1 — klient UDP:
+iperf3 -c 10.0.1.10 -p 5202 -u -b 20M -t 20
+
+Linux 2 — klient UDP:
+iperf3 -c 10.0.0.10 -p 5201 -u -b 20M -t 20
+
+TEST MTU I LICZNIKÓW — ROUTER 1
+
+/ping 192.168.48.86 size=1400 do-not-fragment count=5
+/ping 192.168.48.86 size=1500 do-not-fragment count=5
+/interface wireguard peers print detail
+/interface monitor-traffic wg-cw5 once
+
+TEST MTU — LINUX 1
+
+ping -M do -s 1392 -c 5 10.0.1.10
+ping -M do -s 1472 -c 5 10.0.1.10
